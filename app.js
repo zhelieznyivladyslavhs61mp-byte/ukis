@@ -541,35 +541,62 @@
     } catch (e) { toast('Не вдалося імпортувати: ' + e.message); }
   }
   function fileBase() { return ('ukis-' + (S.model.title || 'model')).replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '-').slice(0, 60); }
-  function saveBlob(blob, name) {
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
-    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  // посилання на файл живе хвилину: Safari на iPhone спершу питає «Завантажити?», і раннє прибирання ламало завантаження
+  function downloadUrl(url, name) {
+    const a = document.createElement('a'); a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); setTimeout(() => a.remove(), 1000);
   }
+  function saveBlob(blob, name) {
+    const url = URL.createObjectURL(blob);
+    downloadUrl(url, name); setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+  const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
 
-  async function openInBrowser() {
+  async function openInBrowser(withPdf) {
     readForm();
-    const url = location.href.split('#')[0] + '#' + await encodeModel(S.model) + '&run=1';
+    const url = location.href.split('#')[0] + '#' + await encodeModel(S.model) + '&run=1' + (withPdf === true ? '&pdf=1' : '');
     try { tg.openLink(url); } catch (e) { window.open(url, '_blank'); }
   }
 
+  let pdfUrl = null;
   async function pdf() {
     if (!S.result) { toast('Спершу виконайте розрахунок.'); return; }
-    if (inTg && /^(ios|android|android_x)$/.test(tg.platform)) {
-      openDlg('Звіт PDF', `<p>У Telegram на телефоні файл зручніше зберегти з браузера: відкриється цей самий розрахунок, там натисніть «Звіт PDF».</p>
-        <div class="actions"><button type="button" class="btn" id="pB">Відкрити в браузері</button><button type="button" class="btn ghost-btn" id="pT">Спробувати тут</button></div>`, b => {
-        b.querySelector('#pB').addEventListener('click', () => { closeDlg(); openInBrowser(); });
-        b.querySelector('#pT').addEventListener('click', () => { closeDlg(); makePdf(); });
-      });
-      return;
-    }
-    makePdf();
-  }
-  async function makePdf() {
+    let blob;
     try {
       toast('Готую звіт…', 1500);
-      const blob = await window.SlopeReport.make({ model: S.model, result: S.result, methodNames: METHOD_FULL, tableRows });
-      saveBlob(blob, fileBase() + '.pdf');
-    } catch (e) { toast('Не вдалося зробити PDF: ' + e.message); }
+      blob = await window.SlopeReport.make({ model: S.model, result: S.result, methodNames: METHOD_FULL, tableRows });
+    } catch (e) { toast('Не вдалося зробити PDF: ' + e.message); return; }
+    const name = fileBase() + '.pdf';
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    pdfUrl = URL.createObjectURL(blob);
+    // комп'ютер, звичайний браузер — просто завантажуємо, як раніше
+    if (!inTg && !isMobile()) { downloadUrl(pdfUrl, name); return; }
+    // телефон або Telegram: кнопки, які спрацьовують від натискання (iPhone інакше не дає зберегти файл)
+    let file = null;
+    try { file = new File([blob], name, { type: 'application/pdf' }); } catch (e) { /* старий браузер */ }
+    const canShare = !!(file && navigator.canShare && navigator.canShare({ files: [file] }));
+    const html = `<p>Звіт «${esc(name)}» готовий (${Math.round(blob.size / 1024)} КБ).</p>
+      <div class="list">
+        ${canShare ? '<button type="button" class="btn" id="rShare">Зберегти у Файли / надіслати</button>' : ''}
+        <button type="button" class="btn${canShare ? ' ghost-btn' : ''}" id="rOpen">Відкрити PDF</button>
+        <button type="button" class="btn ghost-btn" id="rDl">Завантажити файл</button>
+        ${inTg ? '<button type="button" class="btn ghost-btn" id="rBr">Відкрити в браузері</button>' : ''}
+      </div>
+      <p class="hint">На iPhone: «Зберегти у Файли», або «Відкрити PDF» → кнопка «Поділитися» → «Зберегти у Файли».${inTg ? ' Якщо тут нічого не спрацьовує — «Відкрити в браузері»: там звіт підготується сам.' : ' Якщо сторінка відкрита у вбудованому браузері Telegram і нічого не відбувається — меню ⋯ → «Відкрити в Safari».'}</p>`;
+    openDlg('Звіт PDF', html, b => {
+      const sh = b.querySelector('#rShare');
+      if (sh) sh.addEventListener('click', async () => {
+        try { await navigator.share({ files: [file], title: name }); closeDlg(); }
+        catch (e) { if (e.name !== 'AbortError') toast('Не вдалося поділитися: ' + e.message + '. Спробуйте «Відкрити PDF».'); }
+      });
+      b.querySelector('#rOpen').addEventListener('click', () => {
+        const w = window.open(pdfUrl, '_blank');
+        if (!w) location.href = pdfUrl;
+      });
+      b.querySelector('#rDl').addEventListener('click', () => downloadUrl(pdfUrl, name));
+      const br = b.querySelector('#rBr');
+      if (br) br.addEventListener('click', () => { closeDlg(); openInBrowser(true); });
+    });
   }
 
   // ---------- події ----------
@@ -673,16 +700,16 @@
   // ---------- старт ----------
   async function start() {
     bind();
-    let m = null, autorun = false;
+    let m = null, autorun = false, autopdf = false;
     const h = location.hash.match(/#([zm])=([^&]+)/);
-    if (h) { try { m = await decodeModel(h[1], h[2]); autorun = /[#&]run=1/.test(location.hash); } catch (e) { toast('Посилання пошкоджене (' + e.message + ') — відкрито останній варіант.'); } }
+    if (h) { try { m = await decodeModel(h[1], h[2]); autorun = /[#&]run=1/.test(location.hash); autopdf = /[#&]pdf=1/.test(location.hash); } catch (e) { toast('Посилання пошкоджене (' + e.message + ') — відкрито останній варіант.'); } }
     if (h && m) history.replaceState(null, '', location.pathname + location.search);
     if (!m) m = store.get('ukis.current', null);
     try { if (m) E.prepare(m); } catch (e) { m = null; }
     $('#intro').hidden = store.get('ukis.intro', '') === 'hidden';
     loadModel(m || newSlope());
     setTab('geom');
-    if (autorun) run();
+    if (autorun) { await run(); if (autopdf && S.result) pdf(); }
   }
   start();
 })();
