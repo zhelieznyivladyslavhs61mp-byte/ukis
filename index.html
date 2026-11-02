@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Укіс — стійкість схилу</title>
+<meta name="description" content="Розрахунок стійкості ґрунтового укосу: Феленіус, Бішоп, Янбу, пошук критичного кола, анкери, звіт PDF">
+<meta name="theme-color" content="#f3f4f6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 26h8l12-14h8v18H2z' fill='%23e9c46a'/%3E%3Cpath d='M9 26a14 14 0 0 1 17-14' fill='none' stroke='%23d62828' stroke-width='2.5'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css?v=58586299">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M2 26h8l12-14h8v18H2z" fill="#e9c46a"/><path d="M9 26a14 14 0 0 1 17-14" fill="none" stroke="#d62828" stroke-width="2.5"/></svg>
+    <div><b>Укіс</b><small id="variantName">—</small></div>
+  </div>
+  <div class="top-actions">
+    <button class="ghost" id="btnPresets" title="Готові приклади">Приклади</button>
+    <button class="pill" id="btnShare" title="Посилання на цей розрахунок">Поділитися</button>
+    <button class="ghost more" id="btnMore" title="Меню" aria-label="Меню">⋯</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="viewer card">
+    <div class="viewer-head">
+      <span id="viewerTitle">Модель</span>
+      <label class="chk small"><input type="checkbox" id="showGrid" checked> сітка центрів</label>
+    </div>
+    <canvas id="cv" aria-label="Схема укосу"></canvas>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section class="side">
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="geom" class="on">Геометрія</button>
+      <button role="tab" data-tab="soil">Ґрунти</button>
+      <button role="tab" data-tab="water">Вода й навантаження</button>
+      <button role="tab" data-tab="anch">Анкери</button>
+      <button role="tab" data-tab="search">Пошук</button>
+      <button role="tab" data-tab="res">Результати</button>
+    </nav>
+
+    <!-- Геометрія -->
+    <div class="panel on" data-panel="geom">
+      <div class="card intro" id="intro">
+        <div class="row-between"><b>Як порахувати укіс за 3 кроки</b><button type="button" class="ghost" id="introHide">Сховати</button></div>
+        <ol>
+          <li><b>Геометрія.</b> Відкрийте приклад або побудуйте укіс за висотою й кутом (чи введіть точки поверхні).</li>
+          <li><b>Ґрунти й умови.</b> На вкладці «Ґрунти» — γ, c, φ і межі шарів; за потреби — вода, навантаження, анкери.</li>
+          <li><b>Розрахувати.</b> Програма знайде критичне коло й дасть K за Бішопом, Янбу і Феленіусом, схему, карту K, таблицю відсіків і звіт PDF.</li>
+        </ol>
+        <div class="intro-ex">
+          <button type="button" class="chip" data-ex="_new">Однорідний укіс</button>
+          <button type="button" class="chip" data-ex="pr2">Два шари й будівля</button>
+          <button type="button" class="chip" data-ex="pr4">З анкерами</button>
+          <button type="button" class="chip" data-ex="arai3">З ґрунтовими водами</button>
+        </div>
+        <p class="note">Навчальний інструмент: результат варто перевіряти — вручну за таблицею відсіків або в ліцензованій програмі (Slide тощо). Без акаунтів і реклами: дані нікуди не надсилаються, усе зберігається лише у вашому браузері.</p>
+      </div>
+      <div class="card">
+        <label class="fld"><span>Назва варіанта</span><input id="mTitle" type="text"></label>
+      </div>
+      <details class="card" id="quick">
+        <summary>Швидко: укіс за висотою й кутом</summary>
+        <div class="grid3">
+          <label class="fld"><span>Висота H, м</span><input data-q="H" inputmode="decimal" value="10"></label>
+          <label class="fld"><span>Кут укосу β, °</span><input data-q="beta" inputmode="decimal" value="30"></label>
+          <label class="fld"><span>Відмітка підошви, м</span><input data-q="y0" inputmode="decimal" value="20"></label>
+          <label class="fld"><span>Майданчик знизу, м</span><input data-q="Lb" inputmode="decimal" value="15"></label>
+          <label class="fld"><span>Майданчик зверху, м</span><input data-q="Lt" inputmode="decimal" value="25"></label>
+          <label class="fld"><span>Глибина основи, м</span><input data-q="D" inputmode="decimal" value="10"></label>
+        </div>
+        <label class="fld"><span>Бровка</span>
+          <select data-q="side"><option value="right">праворуч (укіс опускається вліво)</option><option value="left">ліворуч</option></select></label>
+        <button class="btn" id="btnQuick">Побудувати поверхню</button>
+        <p class="hint">Замінить точки поверхні й низ моделі. Межі шарів задайте на вкладці «Ґрунти».</p>
+      </details>
+      <div class="card">
+        <label class="fld"><span>Поверхня укосу: точки «x y» по рядку, зліва направо</span>
+          <textarea id="mSurface" rows="6" spellcheck="false"></textarea></label>
+        <label class="fld"><span>Низ моделі y, м</span><input id="mYbot" inputmode="decimal"></label>
+        <p class="hint">Дробова частина — через кому або крапку. Вертикальний уступ — дві точки з однаковим x.</p>
+      </div>
+    </div>
+
+    <!-- Ґрунти -->
+    <div class="panel" data-panel="soil">
+      <div id="layers"></div>
+      <button class="btn ghost-btn" id="addLayer">+ Шар ґрунту</button>
+      <h3 class="sec">Включення (фундамент, стіна в ґрунті)</h3>
+      <div id="incls"></div>
+      <button class="btn ghost-btn" id="addIncl">+ Прямокутне включення</button>
+      <p class="hint">Шари йдуть згори вниз. Нижня межа шару — ламана «x y». Точка належить першому шару, нижня межа якого під нею; останній шар — до низу моделі. Включення (бетон тощо) перекривають шари.</p>
+    </div>
+
+    <!-- Вода й навантаження -->
+    <div class="panel" data-panel="water">
+      <div class="card">
+        <label class="chk"><input type="checkbox" id="wOn"> Рівень ґрунтових вод (поровий тиск)</label>
+        <label class="fld"><span>Лінія РҐВ: точки «x y»</span><textarea id="wLine" rows="4" spellcheck="false"></textarea></label>
+        <label class="fld"><span>Питома вага води γw, кН/м³</span><input id="wGw" inputmode="decimal"></label>
+        <p class="hint">u = γw · (відмітка РҐВ − відмітка основи відсіку), як «Water Table» у Slide. Нижче РҐВ береться γнас, якщо задано.</p>
+      </div>
+      <h3 class="sec">Рівномірне навантаження (на бровці)</h3>
+      <div id="loads"></div>
+      <button class="btn ghost-btn" id="addLoad">+ Навантаження</button>
+    </div>
+
+    <!-- Анкери -->
+    <div class="panel" data-panel="anch">
+      <div class="card">
+        <label class="fld"><span>Робота анкерів</span>
+          <select id="aMode"><option value="active">Active (попередньо напружені)</option><option value="passive">Passive (вмикаються після зсуву)</option></select></label>
+        <div class="grid3">
+          <label class="fld"><span>Тип</span><select id="aType"><option value="grouted">ґрунтовий (Grouted Tieback)</option><option value="end">з постійною силою</option></select></label>
+          <label class="fld"><span>Кут вниз від горизонту, °</span><input id="aAngle" inputmode="decimal"></label>
+          <label class="fld"><span>Довжина L, м</span><input id="aLen" inputmode="decimal"></label>
+          <label class="fld"><span>Сила (міцність на розрив) T, кН</span><input id="aT" inputmode="decimal"></label>
+          <label class="fld"><span>Крок з площини, м</span><input id="aS" inputmode="decimal"></label>
+          <label class="fld g-only"><span>Закладення, % від L</span><input id="aBondPct" inputmode="decimal"></label>
+          <label class="fld g-only"><span>Зчеплення, кН/м</span><input id="aBond" inputmode="decimal"></label>
+          <label class="fld g-only"><span>Опорна плита, кН</span><input id="aPlate" inputmode="decimal"></label>
+        </div>
+        <label class="fld"><span>Головки анкерів: точки «x y» на поверхні</span><textarea id="aHeads" rows="5" spellcheck="false"></textarea></label>
+        <p class="hint">Сила на 1 м: найменша з розриву T, висмикування (зчеплення × закладена довжина за поверхнею ковзання) і зриву (плита + зчеплення × закладена довжина в масі), поділена на крок — як у Slide. Анкер діє лише на кола, які перетинає.</p>
+      </div>
+      <details class="card">
+        <summary>Розставити шаблоном (як Add Support Pattern)</summary>
+        <div class="grid3">
+          <label class="fld"><span>Від x</span><input id="pX1" inputmode="decimal"></label>
+          <label class="fld"><span>Від y</span><input id="pY1" inputmode="decimal"></label>
+          <label class="fld"><span>Крок уздовж схилу, м</span><input id="pStep" inputmode="decimal" value="3"></label>
+          <label class="fld"><span>До x</span><input id="pX2" inputmode="decimal"></label>
+          <label class="fld"><span>До y</span><input id="pY2" inputmode="decimal"></label>
+        </div>
+        <button class="btn" id="btnPattern">Заповнити головки</button>
+      </details>
+      <button class="btn ghost-btn" id="clearAnch">Прибрати всі анкери</button>
+    </div>
+
+    <!-- Пошук -->
+    <div class="panel" data-panel="search">
+      <div class="card">
+        <div class="grid3">
+          <label class="fld"><span>Кількість відсіків</span><input id="sSlices" inputmode="numeric"></label>
+          <label class="fld"><span>Радіусів на центр</span><input id="sRadii" inputmode="numeric"></label>
+          <label class="fld"><span>Нормативний Kст</span><input id="sReq" inputmode="decimal"></label>
+        </div>
+        <label class="chk"><input type="checkbox" id="sAuto"> Сітка центрів автоматично</label>
+        <div class="grid3" id="gridBox">
+          <label class="fld"><span>x від</span><input id="gX1" inputmode="decimal"></label>
+          <label class="fld"><span>x до</span><input id="gX2" inputmode="decimal"></label>
+          <label class="fld"><span>інтервалів по x</span><input id="gNx" inputmode="numeric"></label>
+          <label class="fld"><span>y від</span><input id="gY1" inputmode="decimal"></label>
+          <label class="fld"><span>y до</span><input id="gY2" inputmode="decimal"></label>
+          <label class="fld"><span>інтервалів по y</span><input id="gNy" inputmode="numeric"></label>
+        </div>
+        <label class="chk"><input type="checkbox" id="sRefine"> Уточнення після сітки (локальний пошук центру й радіуса)</label>
+        <label class="fld"><span>Напрям зсуву</span>
+          <select id="sDir"><option value="auto">автоматично</option><option value="left">вліво (бровка праворуч)</option><option value="right">вправо (бровка ліворуч)</option></select></label>
+        <label class="chk"><input type="checkbox" id="sMa"> Відкидати кола з mα &lt; 0,2 (як Slide)</label>
+        <p class="hint">Для кожного центру перебираються радіуси від найменшого, що перетинає поверхню, до кола, що торкається низу моделі (з додатковим згущенням біля поверхні).</p>
+      </div>
+      <details class="card">
+        <summary>Перевірити задане коло</summary>
+        <div class="grid3">
+          <label class="fld"><span>xc</span><input id="cX" inputmode="decimal"></label>
+          <label class="fld"><span>yc</span><input id="cY" inputmode="decimal"></label>
+          <label class="fld"><span>R</span><input id="cR" inputmode="decimal"></label>
+        </div>
+        <button class="btn" id="btnCircle">Розрахувати це коло</button>
+        <div id="circleOut" class="hint"></div>
+      </details>
+    </div>
+
+    <!-- Результати -->
+    <div class="panel" data-panel="res">
+      <div id="resEmpty" class="card empty">Натисніть «Розрахувати», щоб знайти критичну поверхню ковзання.</div>
+      <div id="resBox" hidden>
+        <div class="kcards" id="kcards"></div>
+        <div class="card" id="resInfo"></div>
+        <div class="card">
+          <div class="row-between"><b>Карта K по сітці центрів (Бішоп)</b><span class="hint" id="mapRange"></span></div>
+          <canvas id="cvMap" aria-label="Карта коефіцієнтів стійкості по сітці центрів"></canvas>
+        </div>
+        <div class="card">
+          <div class="row-between"><b>Таблиця відсіків</b>
+            <select id="tblMethod"><option value="bishop">Бішоп</option><option value="janbu">Янбу</option><option value="fellenius">Феленіус</option></select></div>
+          <div class="tbl-wrap"><table id="tbl"></table></div>
+        </div>
+        <div class="actions">
+          <button class="btn" id="btnPdf">Звіт PDF</button>
+          <button class="btn ghost-btn" id="btnShare2">Поділитися</button>
+        </div>
+        <button class="btn ghost-btn" id="btnBrowser" hidden>Відкрити в браузері</button>
+      </div>
+    </div>
+
+    <p class="foot">Навчальний інструмент · перевіряйте результати · дані лишаються у вашому браузері · <button type="button" class="link" id="btnHelp">як користуватися</button></p>
+
+    <div class="run-bar" id="runBar">
+      <button class="btn big" id="btnRun">Розрахувати</button>
+    </div>
+  </section>
+</main>
+
+<div class="progress" id="progress" hidden><div></div></div>
+<div class="toast" id="toast" hidden></div>
+
+<dialog id="dlg">
+  <form method="dialog" class="dlg">
+    <div class="row-between"><b id="dlgTitle"></b><button class="ghost" value="close" aria-label="Закрити">✕</button></div>
+    <div id="dlgBody"></div>
+  </form>
+</dialog>
+
+<script src="engine.js?v=8ad41d98"></script>
+<script src="presets.js?v=17ca89dd"></script>
+<script src="draw.js?v=f440f6aa"></script>
+<script src="report.js?v=d063918f"></script>
+<script src="app.js?v=77bd7854"></script>
+</body>
+</html>

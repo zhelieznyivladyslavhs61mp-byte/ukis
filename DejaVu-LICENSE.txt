@@ -1,0 +1,3 @@
+DejaVu fonts — вільна ліцензія (Bitstream Vera Fonts copyright, DejaVu changes are in public domain).
+Повний текст: https://dejavu-fonts.github.io/License.html
+Використано DejaVu Sans Condensed (звичайний і жирний), урізаний до потрібних символів.
